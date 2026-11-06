@@ -1,0 +1,765 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!--
+  Política de seguridad de contenido (CSP): el navegador solo permite
+  - cargar scripts de esta página y de unpkg.com (la librería MQTT.js),
+  - abrir conexiones de red cifradas por WebSocket seguro (wss:),
+  - nada de formularios hacia otros sitios, ni otras fuentes externas.
+-->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' https://unpkg.com; style-src 'unsafe-inline'; connect-src wss:; img-src data:; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="light dark">
+<title>Iluminación inteligente</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23f5b301' d='M12 2a7 7 0 0 0-4 12.7V17a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-2.3A7 7 0 0 0 12 2zM9 20h6v1a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1z'/%3E%3C/svg%3E">
+<style>
+  /* ===== Colores (modo claro por defecto) ===== */
+  :root {
+    --fondo: #f3f4f1;
+    --tarjeta: #ffffff;
+    --borde: #e2e3de;
+    --texto: #1d1f1c;
+    --suave: #63665f;
+    --acento: #1f6feb;
+    --acento-texto: #ffffff;
+    --verde: #1e8e3e;
+    --amarillo: #b26a00;
+    --rojo: #c5221f;
+    --gris: #8a8d86;
+    --luz: #f5b301;
+    --luz-fondo: #fff6d6;
+    --sombra: 0 1px 2px rgba(0,0,0,.06), 0 4px 16px rgba(0,0,0,.05);
+  }
+  /* ===== Modo oscuro automático según el celular ===== */
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fondo: #121412;
+      --tarjeta: #1c1f1c;
+      --borde: #2e322e;
+      --texto: #eceeea;
+      --suave: #a3a79f;
+      --acento: #4c8dff;
+      --acento-texto: #0b1020;
+      --verde: #4cc26e;
+      --amarillo: #f0b44c;
+      --rojo: #ff6b63;
+      --gris: #7c8079;
+      --luz: #ffc929;
+      --luz-fondo: #2f2a14;
+      --sombra: 0 1px 2px rgba(0,0,0,.4);
+    }
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--fondo);
+    color: var(--texto);
+    font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  .contenedor { max-width: 720px; margin: 0 auto; padding: 16px; }
+
+  /* Encabezado */
+  header h1 { font-size: 1.35rem; margin: 4px 0 10px; letter-spacing: -.01em; }
+  .pills { display: flex; flex-wrap: wrap; gap: 8px; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 12px; border-radius: 999px;
+    background: var(--tarjeta); border: 1px solid var(--borde);
+    font-size: .88rem; color: var(--suave);
+  }
+  .pill b { color: var(--texto); font-weight: 600; }
+  .punto { width: 9px; height: 9px; border-radius: 50%; background: var(--gris); flex: none; }
+  .ok .punto { background: var(--verde); }
+  .espera .punto { background: var(--amarillo); }
+  .mal .punto { background: var(--rojo); }
+
+  /* Avisos */
+  .aviso {
+    margin-top: 14px; padding: 12px 14px; border-radius: 12px;
+    border: 1px solid var(--borde); background: var(--tarjeta);
+    border-left: 5px solid var(--gris); font-size: .95rem;
+  }
+  .aviso.error { border-left-color: var(--rojo); }
+  .aviso.alerta { border-left-color: var(--amarillo); }
+  .aviso.info { border-left-color: var(--acento); }
+
+  /* Tarjetas */
+  .tarjeta {
+    background: var(--tarjeta); border: 1px solid var(--borde);
+    border-radius: 16px; padding: 16px; margin-top: 14px; box-shadow: var(--sombra);
+  }
+  h2 { font-size: 1rem; margin: 0 0 12px; }
+  .etiqueta { color: var(--suave); font-size: .85rem; margin: 0; }
+
+  /* Tarjeta principal de la luz */
+  .luz { display: flex; align-items: center; gap: 18px; }
+  .foco {
+    width: 84px; height: 84px; flex: none; border-radius: 50%;
+    display: grid; place-items: center; background: var(--fondo);
+    transition: background .3s, box-shadow .3s;
+  }
+  .foco svg { width: 50px; height: 50px; fill: var(--gris); transition: fill .3s; }
+  .luz.encendida .foco { background: var(--luz-fondo); box-shadow: 0 0 0 6px var(--luz-fondo), 0 0 36px var(--luz); }
+  .luz.encendida .foco svg { fill: var(--luz); }
+  .estado-luz { font-size: 2rem; font-weight: 800; margin: 0; letter-spacing: .02em; }
+  .luz.encendida .estado-luz { color: var(--luz); }
+  .modo-actual { margin: 2px 0 0; }
+  .modo-actual b { font-weight: 700; }
+  .detalle { margin: 6px 0 0; color: var(--suave); font-size: .9rem; }
+  .desactualizado .estado-luz, .desactualizado .foco { opacity: .45; }
+  .desactualizado .luz-info::after {
+    content: "Último estado conocido: puede no ser el actual";
+    display: inline-block; margin-top: 6px; font-size: .78rem;
+    padding: 2px 8px; border-radius: 6px; background: var(--fondo); color: var(--amarillo);
+  }
+
+  /* Sensores */
+  .sensores { display: grid; gap: 14px; }
+  .fila { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  .indicador {
+    display: inline-flex; align-items: center; gap: 8px; font-weight: 600;
+  }
+  .led { width: 14px; height: 14px; border-radius: 50%; background: var(--borde); }
+  .led.activo { background: var(--verde); box-shadow: 0 0 10px var(--verde); }
+  .led.calentando { background: var(--amarillo); }
+  .barra-lum {
+    position: relative; height: 12px; border-radius: 6px; margin-top: 8px;
+    background: var(--fondo); border: 1px solid var(--borde); overflow: visible;
+  }
+  .relleno { height: 100%; width: 0; border-radius: 6px; background: var(--luz); transition: width .4s; }
+  .marca {
+    position: absolute; top: -4px; bottom: -4px; width: 3px; left: 40%;
+    background: var(--texto); border-radius: 2px; transform: translateX(-1px);
+  }
+  small { color: var(--suave); }
+
+  /* Botones */
+  .botones { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .botones.dos { grid-template-columns: 1fr 1fr; margin-top: 10px; }
+  .botones.uno { grid-template-columns: 1fr; margin-top: 12px; }
+  button {
+    font: inherit; font-weight: 600; padding: 12px 10px; border-radius: 12px;
+    border: 1px solid var(--borde); background: var(--fondo); color: var(--texto);
+    cursor: pointer; min-height: 48px;
+  }
+  button:hover:not(:disabled) { border-color: var(--acento); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button[aria-pressed="true"] { background: var(--acento); color: var(--acento-texto); border-color: var(--acento); }
+  button.principal { background: var(--acento); color: var(--acento-texto); border-color: var(--acento); }
+  button.secundario { background: transparent; }
+  .nota { color: var(--suave); font-size: .85rem; margin: 10px 0 0; }
+  .mensaje { min-height: 1.3em; font-size: .9rem; margin: 8px 0 0; color: var(--suave); }
+
+  /* Formularios */
+  label { display: block; font-size: .9rem; color: var(--suave); margin-bottom: 4px; }
+  input[type=text], input[type=password], input[type=number] {
+    width: 100%; font: inherit; padding: 11px 12px; border-radius: 10px;
+    border: 1px solid var(--borde); background: var(--fondo); color: var(--texto);
+  }
+  input:focus { outline: 2px solid var(--acento); outline-offset: 1px; }
+  .campos { display: grid; gap: 12px; }
+  .campos.dos { grid-template-columns: 1fr 1fr; }
+  .con-boton { display: flex; gap: 8px; }
+  .con-boton button { min-height: auto; padding: 0 12px; flex: none; }
+  .check { display: flex; align-items: center; gap: 8px; color: var(--texto); font-size: .95rem; margin: 0; }
+  .check input { width: 20px; height: 20px; }
+  details summary { cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: center; }
+  details summary::-webkit-details-marker { display: none; }
+  details summary h2 { margin: 0; }
+  details summary::after { content: "▾"; color: var(--suave); }
+  details[open] summary::after { content: "▴"; }
+  details[open] summary { margin-bottom: 12px; }
+  .pie { text-align: center; color: var(--suave); font-size: .8rem; margin: 18px 0 8px; }
+
+  @media (max-width: 420px) {
+    .campos.dos { grid-template-columns: 1fr; }
+    .estado-luz { font-size: 1.7rem; }
+    .foco { width: 72px; height: 72px; }
+  }
+</style>
+</head>
+<body>
+<div class="contenedor">
+
+  <header>
+    <h1>💡 Iluminación inteligente</h1>
+    <div class="pills">
+      <span class="pill" id="pillBroker"><span class="punto"></span>Broker: <b id="txtBroker">Desconectado</b></span>
+      <span class="pill" id="pillEsp"><span class="punto"></span>ESP32: <b id="txtEsp">Sin datos</b></span>
+    </div>
+  </header>
+
+  <div id="aviso" class="aviso" role="status" hidden></div>
+
+  <!-- ===== Estado de la luz ===== -->
+  <section class="tarjeta luz" id="tarjetaLuz" aria-live="polite">
+    <div class="foco">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a7 7 0 0 0-4 12.7V17a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-2.3A7 7 0 0 0 12 2zM9 20h6v1a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1z"/></svg>
+    </div>
+    <div class="luz-info">
+      <p class="etiqueta">Iluminación</p>
+      <p class="estado-luz" id="txtLuz">—</p>
+      <p class="modo-actual"><span class="etiqueta">Modo:</span> <b id="txtModo">—</b></p>
+      <p class="detalle" id="txtDetalle">Sin datos del ESP32 todavía.</p>
+    </div>
+  </section>
+
+  <!-- ===== Sensores ===== -->
+  <section class="tarjeta">
+    <h2>Sensores</h2>
+    <div class="sensores">
+      <div class="fila">
+        <span>Movimiento (PIR)</span>
+        <span class="indicador"><span class="led" id="ledMov"></span><span id="txtMov">—</span></span>
+      </div>
+      <div>
+        <div class="fila"><span>Luminosidad (LDR)</span><b id="txtLum">—</b></div>
+        <div class="barra-lum" title="La línea vertical marca el umbral">
+          <div class="relleno" id="barraLum"></div>
+          <div class="marca" id="marcaUmbral"></div>
+        </div>
+        <small>La línea vertical es el umbral: por debajo, la habitación se considera oscura.</small>
+      </div>
+      <div class="fila">
+        <span>Habitación</span>
+        <b id="txtAmbiente">—</b>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Controles ===== -->
+  <section class="tarjeta">
+    <h2>Controles</h2>
+    <div class="botones">
+      <button type="button" class="control" data-comando="modo:auto" data-modo="AUTOMATICO" aria-pressed="false">Automático</button>
+      <button type="button" class="control" data-comando="modo:manual" data-modo="MANUAL" aria-pressed="false">Manual</button>
+      <button type="button" class="control" data-comando="modo:apagado" data-modo="APAGADO" aria-pressed="false">Desactivar</button>
+    </div>
+    <div class="botones dos">
+      <button type="button" class="control principal" data-comando="luz:on">Encender luz</button>
+      <button type="button" class="control" data-comando="luz:off">Apagar luz</button>
+    </div>
+    <p class="nota">Encender o apagar la luz desde acá pasa el sistema a modo manual.</p>
+    <p class="mensaje" id="msgControles"></p>
+  </section>
+
+  <!-- ===== Configuración del sistema ===== -->
+  <section class="tarjeta">
+    <h2>Configuración</h2>
+    <form id="formConfig" novalidate>
+      <div class="campos dos">
+        <div>
+          <label for="umbral">Umbral de luminosidad (0 a 100 %)</label>
+          <input type="number" id="umbral" min="0" max="100" step="1" inputmode="numeric">
+        </div>
+        <div>
+          <label for="tiempo">Apagado sin movimiento (5 a 3600 s)</label>
+          <input type="number" id="tiempo" min="5" max="3600" step="1" inputmode="numeric">
+        </div>
+      </div>
+      <div class="botones uno">
+        <button type="submit" class="control principal">Guardar configuración</button>
+      </div>
+      <p class="mensaje" id="msgConfig"></p>
+    </form>
+  </section>
+
+  <!-- ===== Conexión MQTT ===== -->
+  <details class="tarjeta" id="panelMqtt" open>
+    <summary><h2>Conexión MQTT</h2></summary>
+    <form id="formMqtt" novalidate>
+      <div class="campos">
+        <div>
+          <label for="host">Hostname del broker</label>
+          <input type="text" id="host" placeholder="xxxxxxxx.ala.us-east-1.emqxsl.com" autocomplete="off" autocapitalize="off" spellcheck="false">
+        </div>
+        <div class="campos dos">
+          <div>
+            <label for="usuario">Usuario MQTT</label>
+            <input type="text" id="usuario" placeholder="web" autocomplete="username" autocapitalize="off" spellcheck="false">
+          </div>
+          <div>
+            <label for="clave">Contraseña MQTT</label>
+            <div class="con-boton">
+              <input type="password" id="clave" autocomplete="current-password">
+              <button type="button" id="btnVerClave" aria-label="Mostrar contraseña">👁</button>
+            </div>
+          </div>
+        </div>
+        <label class="check"><input type="checkbox" id="recordar"> Recordar en este dispositivo</label>
+      </div>
+      <div class="botones dos">
+        <button type="submit" class="principal" id="btnConectar">Conectar</button>
+        <button type="button" id="btnDesconectar" disabled>Desconectar</button>
+      </div>
+      <p class="mensaje" id="msgMqtt"></p>
+      <p class="nota">Conexión cifrada (WebSocket seguro, puerto 8084). Los datos no están escritos en el código de la página: se cargan acá y, si marcás "Recordar", quedan guardados solo en este navegador.
+        <button type="button" class="secundario" id="btnOlvidar" style="min-height:auto;padding:4px 8px;font-size:.85rem;margin-left:4px">Olvidar datos guardados</button>
+      </p>
+    </form>
+  </details>
+
+  <p class="pie" id="txtActualizacion">Proyecto escolar · ESP32 + MQTT</p>
+</div>
+
+<!-- Librería MQTT.js desde la CDN unpkg (versión fija, para que no cambie sola) -->
+<script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
+
+<script>
+// =====================================================================
+//  CONFIGURACIÓN FIJA (no hay credenciales en el código)
+// =====================================================================
+const TOPIC_COMANDOS = 'casa/iluminacion/comandos';
+const TOPIC_ESTADO   = 'casa/iluminacion/estado';
+const TOPIC_ESP32    = 'casa/iluminacion/esp32';
+const PUERTO_WSS = 8084;               // WebSocket seguro de EMQX
+const RUTA_WS    = '/mqtt';
+const ESPERA_MAXIMA_DATOS = 20000;     // si el ESP32 no manda datos en 20 s, "no responde"
+const CLAVE_GUARDADO = 'iluminacion-mqtt';  // nombre del dato en el almacenamiento local
+
+// =====================================================================
+//  ESTADO DE LA PÁGINA
+// =====================================================================
+let cliente = null;                 // conexión MQTT
+let estadoBroker = 'desconectado';  // desconectado | conectando | conectado | error
+let mensajeErrorBroker = '';
+let huboConexion = false;           // si alguna vez se conectó en esta sesión
+let avisoSuscripcion = '';
+let disponibilidadEsp = '';         // lo que dice el topic esp32: 'online' | 'offline' | ''
+let ultimoEstado = null;            // último estado válido recibido del ESP32
+let estadoEsActual = false;         // false = vino retenido (puede ser viejo)
+let horaUltimoDato = 0;             // cuándo llegó el último estado "en vivo"
+let horaConexion = 0;               // cuándo nos conectamos al broker
+let configModificada = false;       // el usuario está editando la configuración
+
+// Atajo para buscar elementos por id
+function $(id) { return document.getElementById(id); }
+
+// =====================================================================
+//  DISPONIBILIDAD DEL ESP32
+//  No alcanza con el estado retenido: puede ser de hace horas.
+//  El ESP32 se considera "en línea" solo si mandó datos en vivo hace poco.
+// =====================================================================
+function calcularEstadoEsp() {
+  if (estadoBroker !== 'conectado') return 'sin-broker';
+  if (disponibilidadEsp === 'offline') return 'offline';
+  const ahora = Date.now();
+  if (horaUltimoDato && ahora - horaUltimoDato <= ESPERA_MAXIMA_DATOS) return 'online';
+  if (!horaUltimoDato && ahora - horaConexion <= ESPERA_MAXIMA_DATOS) return 'esperando';
+  return 'no-responde';
+}
+
+// =====================================================================
+//  ACTUALIZAR LA PANTALLA (se llama ante cada evento y una vez por segundo)
+//  Siempre usamos textContent (nunca innerHTML) para que un mensaje
+//  malicioso no pueda inyectar código en la página.
+// =====================================================================
+function actualizarPantalla() {
+  const esp = calcularEstadoEsp();
+  const puedeControlar = (esp === 'online');
+
+  // --- Indicador del broker ---
+  const textosBroker = { desconectado: 'Desconectado', conectando: 'Conectando…', conectado: 'Conectado', error: 'Error' };
+  const clasesBroker = { desconectado: '', conectando: 'espera', conectado: 'ok', error: 'mal' };
+  $('txtBroker').textContent = textosBroker[estadoBroker];
+  $('pillBroker').className = 'pill ' + clasesBroker[estadoBroker];
+
+  // --- Indicador del ESP32 ---
+  const textosEsp = { 'sin-broker': 'Sin datos', esperando: 'Esperando datos…', online: 'En línea', offline: 'Desconectado', 'no-responde': 'No responde' };
+  const clasesEsp = { 'sin-broker': '', esperando: 'espera', online: 'ok', offline: 'mal', 'no-responde': 'mal' };
+  $('txtEsp').textContent = textosEsp[esp];
+  $('pillEsp').className = 'pill ' + clasesEsp[esp];
+
+  // --- Aviso principal ---
+  mostrarAviso(esp);
+
+  // --- Tarjeta de la luz y sensores ---
+  mostrarEstado(esp);
+
+  // --- Botones ---
+  document.querySelectorAll('.control').forEach(function (boton) {
+    boton.disabled = !puedeControlar;
+  });
+  document.querySelectorAll('[data-modo]').forEach(function (boton) {
+    const activo = ultimoEstado && boton.dataset.modo === ultimoEstado.modo;
+    boton.setAttribute('aria-pressed', activo ? 'true' : 'false');
+  });
+  $('btnConectar').textContent = (cliente ? 'Reconectar' : 'Conectar');
+  $('btnDesconectar').disabled = !cliente;
+}
+
+function mostrarAviso(esp) {
+  let texto = '';
+  let tipo = 'info';
+
+  if (typeof mqtt === 'undefined') {
+    texto = 'No se pudo cargar la librería MQTT.js. Revisá la conexión a Internet y recargá la página.';
+    tipo = 'error';
+  } else if (estadoBroker === 'error') {
+    texto = mensajeErrorBroker;
+    tipo = 'error';
+  } else if (estadoBroker === 'desconectado') {
+    texto = 'No hay conexión con el broker. Completá los datos de "Conexión MQTT" y tocá Conectar.';
+    tipo = 'info';
+  } else if (estadoBroker === 'conectando') {
+    texto = huboConexion
+      ? 'Se perdió la conexión con el broker. Reintentando… (revisá tu conexión a Internet)'
+      : 'Intentando conectar con el broker… Si tarda mucho, revisá el hostname y tu conexión.';
+    tipo = huboConexion ? 'error' : 'alerta';
+  } else if (avisoSuscripcion) {
+    texto = avisoSuscripcion;
+    tipo = 'error';
+  } else if (esp === 'offline') {
+    texto = 'El ESP32 está desconectado del broker (sin WiFi, sin Internet o sin energía). Se muestra el último estado conocido. Si tiene energía, la automatización local sigue funcionando.';
+    tipo = 'error';
+  } else if (esp === 'no-responde') {
+    texto = 'El ESP32 no envía datos hace más de 20 segundos. Puede haber perdido la conexión.';
+    tipo = 'error';
+  } else if (esp === 'esperando') {
+    texto = 'Conectado al broker. Esperando datos en vivo del ESP32…';
+    tipo = 'alerta';
+  }
+
+  const aviso = $('aviso');
+  aviso.hidden = !texto;
+  aviso.textContent = texto;
+  aviso.className = 'aviso ' + tipo;
+}
+
+function mostrarEstado(esp) {
+  const tarjeta = $('tarjetaLuz');
+  const e = ultimoEstado;
+  const actual = (esp === 'online' && estadoEsActual);
+
+  // El cartel "último estado conocido" solo tiene sentido si hay algún dato
+  tarjeta.classList.toggle('desactualizado', Boolean(e) && !actual);
+
+  if (!e) {
+    tarjeta.classList.remove('encendida');
+    $('txtLuz').textContent = '—';
+    $('txtModo').textContent = '—';
+    $('txtDetalle').textContent = 'Sin datos del ESP32 todavía.';
+    $('txtMov').textContent = '—';
+    $('ledMov').className = 'led';
+    $('txtLum').textContent = '—';
+    $('barraLum').style.width = '0%';
+    $('txtAmbiente').textContent = '—';
+    return;
+  }
+
+  // Luz y modo
+  tarjeta.classList.toggle('encendida', e.luz);
+  $('txtLuz').textContent = e.luz ? 'ENCENDIDA' : 'APAGADA';
+  const nombresModo = { AUTOMATICO: 'AUTOMÁTICO', MANUAL: 'MANUAL', APAGADO: 'APAGADO' };
+  $('txtModo').textContent = nombresModo[e.modo];
+  $('txtDetalle').textContent = actual ? textoDetalle(e) : '';
+
+  // Movimiento
+  if (e.pir_listo === false) {
+    $('txtMov').textContent = 'Calentando sensor…';
+    $('ledMov').className = 'led calentando';
+  } else {
+    $('txtMov').textContent = e.movimiento ? 'Detectado' : 'Sin movimiento';
+    $('ledMov').className = e.movimiento ? 'led activo' : 'led';
+  }
+
+  // Luminosidad y umbral
+  $('txtLum').textContent = e.luminosidad + ' %';
+  $('barraLum').style.width = e.luminosidad + '%';
+  $('marcaUmbral').style.left = e.umbral + '%';
+  $('txtAmbiente').textContent = e.oscuro ? '🌙 Oscura' : '☀️ Iluminada';
+
+  // Campos de configuración: los completamos solo si el usuario no los está editando
+  if (!configModificada) {
+    if (document.activeElement !== $('umbral')) $('umbral').value = e.umbral;
+    if (document.activeElement !== $('tiempo')) $('tiempo').value = e.tiempo;
+  }
+}
+
+// Explicación corta de lo que está haciendo el sistema
+function textoDetalle(e) {
+  if (e.modo === 'APAGADO') return 'Sistema desactivado: la luz no se enciende aunque haya movimiento.';
+  if (e.modo === 'MANUAL') return 'Control manual desde el celular. Los sensores no cambian la luz.';
+  // Modo automático
+  if (!e.luz) return 'Se enciende sola si detecta movimiento con poca luz.';
+  if (e.movimiento) return 'Hay movimiento: la cuenta regresiva se reinicia.';
+  const restante = Math.max(0, e.restante - Math.floor((Date.now() - horaUltimoDato) / 1000));
+  return 'Se apaga en ' + formatearSegundos(restante) + ' si no hay movimiento.';
+}
+
+function formatearSegundos(s) {
+  if (s < 60) return s + ' s';
+  const minutos = Math.floor(s / 60);
+  const segundos = s % 60;
+  return minutos + ' min ' + (segundos < 10 ? '0' : '') + segundos + ' s';
+}
+
+// =====================================================================
+//  VALIDACIÓN DE LOS DATOS QUE LLEGAN (nunca confiamos a ciegas)
+// =====================================================================
+function esEnteroEntre(valor, minimo, maximo) {
+  return Number.isInteger(valor) && valor >= minimo && valor <= maximo;
+}
+
+function esEstadoValido(d) {
+  return d !== null && typeof d === 'object'
+    && typeof d.luz === 'boolean'
+    && typeof d.movimiento === 'boolean'
+    && typeof d.oscuro === 'boolean'
+    && ['AUTOMATICO', 'MANUAL', 'APAGADO'].includes(d.modo)
+    && esEnteroEntre(d.luminosidad, 0, 100)
+    && esEnteroEntre(d.umbral, 0, 100)
+    && esEnteroEntre(d.tiempo, 5, 3600)
+    && esEnteroEntre(d.restante, 0, 3600);
+}
+
+// =====================================================================
+//  CONEXIÓN MQTT
+// =====================================================================
+
+// Limpia lo que escribió el usuario: acepta "wss://host:8084/mqtt" y deja solo "host"
+function limpiarHost(texto) {
+  let host = texto.trim().toLowerCase();
+  host = host.replace(/^[a-z]+:\/\//, '');  // quita wss://, mqtts://, https://
+  host = host.split('/')[0];                 // quita la ruta
+  host = host.split(':')[0];                 // quita el puerto
+  // Solo letras, números, guiones y puntos (evita direcciones raras)
+  if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(host)) return '';
+  return host;
+}
+
+function conectar() {
+  if (typeof mqtt === 'undefined') {
+    actualizarPantalla();
+    return;
+  }
+  const host = limpiarHost($('host').value);
+  const usuario = $('usuario').value.trim();
+  const clave = $('clave').value;
+
+  if (!host) { $('msgMqtt').textContent = 'El hostname no es válido. Copialo de la página Overview de EMQX.'; return; }
+  if (!usuario || !clave) { $('msgMqtt').textContent = 'Completá el usuario y la contraseña.'; return; }
+  $('host').value = host;
+  $('msgMqtt').textContent = '';
+
+  // Recordar (o no) los datos en este navegador
+  if ($('recordar').checked) {
+    guardarDatos(host, usuario, clave);
+  } else {
+    borrarDatosGuardados();
+  }
+
+  cerrarCliente();   // por si había una conexión anterior
+  estadoBroker = 'conectando';
+  mensajeErrorBroker = '';
+  huboConexion = false;
+
+  const url = 'wss://' + host + ':' + PUERTO_WSS + RUTA_WS;   // siempre cifrado
+  cliente = mqtt.connect(url, {
+    username: usuario,
+    password: clave,
+    clientId: 'web-' + Math.random().toString(16).slice(2, 10),
+    clean: true,              // sesión limpia
+    keepalive: 30,
+    connectTimeout: 10000,    // máximo 10 s esperando la conexión
+    reconnectPeriod: 5000,    // si se corta, reintenta cada 5 s
+    protocolVersion: 4        // MQTT 3.1.1
+  });
+
+  cliente.on('connect', alConectar);
+  cliente.on('reconnect', function () { estadoBroker = 'conectando'; actualizarPantalla(); });
+  cliente.on('close', alCerrar);
+  cliente.on('error', alError);
+  cliente.on('message', alRecibirMensaje);
+  actualizarPantalla();
+}
+
+function alConectar() {
+  estadoBroker = 'conectado';
+  huboConexion = true;
+  horaConexion = Date.now();
+  horaUltimoDato = 0;       // todavía no llegó nada "en vivo" en esta conexión
+  disponibilidadEsp = '';
+  estadoEsActual = false;
+  avisoSuscripcion = '';
+
+  cliente.subscribe([TOPIC_ESTADO, TOPIC_ESP32], { qos: 1 }, function (error, otorgadas) {
+    // Si las reglas de autorización rechazan la suscripción, el broker devuelve QoS 128
+    const rechazada = error || (otorgadas || []).some(function (s) { return s.qos === 128; });
+    if (rechazada) {
+      avisoSuscripcion = 'El broker rechazó la suscripción. Revisá las reglas de autorización del usuario "web" en EMQX.';
+    }
+    actualizarPantalla();
+  });
+
+  $('panelMqtt').open = false;   // escondemos el formulario una vez conectados
+  actualizarPantalla();
+}
+
+function alCerrar() {
+  if (estadoBroker !== 'error' && estadoBroker !== 'desconectado') {
+    estadoBroker = 'conectando';   // MQTT.js va a reintentar solo
+  }
+  actualizarPantalla();
+}
+
+function alError(error) {
+  // Códigos 4 y 5 del broker = usuario/contraseña incorrectos o sin autorización.
+  // En ese caso dejamos de reintentar (insistir con una clave mala no sirve).
+  const codigo = error && error.code;
+  const texto = String(error && error.message || '');
+  if (codigo === 4 || codigo === 5 || /not authorized|bad user/i.test(texto)) {
+    estadoBroker = 'error';
+    mensajeErrorBroker = 'El broker rechazó el usuario o la contraseña. Revisalos en "Conexión MQTT".';
+    $('panelMqtt').open = true;
+    cerrarCliente();
+  } else {
+    $('msgMqtt').textContent = 'Problema de conexión: ' + texto;
+  }
+  actualizarPantalla();
+}
+
+// Cierra la conexión actual sin que sus eventos sigan afectando la página
+function cerrarCliente() {
+  if (cliente) {
+    cliente.removeAllListeners();
+    cliente.end(true);
+    cliente = null;
+  }
+  disponibilidadEsp = '';
+  horaUltimoDato = 0;
+  estadoEsActual = false;
+}
+
+function desconectar() {
+  cerrarCliente();
+  estadoBroker = 'desconectado';
+  mensajeErrorBroker = '';
+  $('panelMqtt').open = true;
+  actualizarPantalla();
+}
+
+function alRecibirMensaje(topic, contenido, paquete) {
+  const texto = contenido.toString();
+
+  if (topic === TOPIC_ESP32) {
+    if (texto === 'online' || texto === 'offline') {
+      disponibilidadEsp = texto;
+    }
+  } else if (topic === TOPIC_ESTADO) {
+    let datos;
+    try {
+      datos = JSON.parse(texto);
+    } catch (e) {
+      return;   // mensaje mal formado: lo ignoramos
+    }
+    if (!esEstadoValido(datos)) return;
+
+    ultimoEstado = datos;
+    // "retain" = true significa que es el mensaje guardado en el broker (puede ser viejo)
+    estadoEsActual = !(paquete && paquete.retain);
+    if (estadoEsActual) {
+      horaUltimoDato = Date.now();
+      disponibilidadEsp = 'online';   // si mandó datos en vivo, está conectado
+      $('txtActualizacion').textContent = 'Última actualización: ' + new Date().toLocaleTimeString('es-AR');
+    }
+  }
+  actualizarPantalla();
+}
+
+// =====================================================================
+//  ENVÍO DE COMANDOS
+// =====================================================================
+function enviarComando(comando, elementoMensaje) {
+  if (!cliente || calcularEstadoEsp() !== 'online') return;
+  // QoS 1 = el broker confirma la recepción. retain = false: los comandos
+  // NO se guardan, así el ESP32 nunca ejecuta una orden vieja al reconectarse.
+  cliente.publish(TOPIC_COMANDOS, comando, { qos: 1, retain: false }, function (error) {
+    elementoMensaje.textContent = error ? 'No se pudo enviar el comando.' : 'Comando enviado ✓';
+    setTimeout(function () { elementoMensaje.textContent = ''; }, 2500);
+  });
+}
+
+document.querySelectorAll('button[data-comando]').forEach(function (boton) {
+  boton.addEventListener('click', function () {
+    enviarComando(boton.dataset.comando, $('msgControles'));
+  });
+});
+
+$('umbral').addEventListener('input', function () { configModificada = true; });
+$('tiempo').addEventListener('input', function () { configModificada = true; });
+
+$('formConfig').addEventListener('submit', function (evento) {
+  evento.preventDefault();
+  const umbral = Number($('umbral').value);
+  const tiempo = Number($('tiempo').value);
+  if (!esEnteroEntre(umbral, 0, 100)) { $('msgConfig').textContent = 'El umbral debe ser un número entero entre 0 y 100.'; return; }
+  if (!esEnteroEntre(tiempo, 5, 3600)) { $('msgConfig').textContent = 'El tiempo debe ser un número entero entre 5 y 3600 segundos.'; return; }
+  enviarComando('umbral:' + umbral, $('msgConfig'));
+  enviarComando('tiempo:' + tiempo, $('msgConfig'));
+  configModificada = false;
+});
+
+// =====================================================================
+//  DATOS GUARDADOS EN EL DISPOSITIVO (localStorage)
+// =====================================================================
+function guardarDatos(host, usuario, clave) {
+  try {
+    localStorage.setItem(CLAVE_GUARDADO, JSON.stringify({ host: host, usuario: usuario, clave: clave }));
+  } catch (e) { /* el navegador no permite guardar: seguimos igual */ }
+}
+
+function borrarDatosGuardados() {
+  try { localStorage.removeItem(CLAVE_GUARDADO); } catch (e) { }
+}
+
+function cargarDatosGuardados() {
+  try {
+    const datos = JSON.parse(localStorage.getItem(CLAVE_GUARDADO));
+    if (datos && typeof datos.host === 'string' && typeof datos.usuario === 'string' && typeof datos.clave === 'string') {
+      $('host').value = datos.host;
+      $('usuario').value = datos.usuario;
+      $('clave').value = datos.clave;
+      $('recordar').checked = true;
+      return true;
+    }
+  } catch (e) { }
+  return false;
+}
+
+// =====================================================================
+//  BOTONES DEL FORMULARIO MQTT
+// =====================================================================
+$('formMqtt').addEventListener('submit', function (evento) {
+  evento.preventDefault();
+  conectar();
+});
+$('btnDesconectar').addEventListener('click', desconectar);
+$('btnVerClave').addEventListener('click', function () {
+  const campo = $('clave');
+  const mostrar = (campo.type === 'password');
+  campo.type = mostrar ? 'text' : 'password';
+  this.setAttribute('aria-label', mostrar ? 'Ocultar contraseña' : 'Mostrar contraseña');
+});
+$('btnOlvidar').addEventListener('click', function () {
+  borrarDatosGuardados();
+  $('clave').value = '';
+  $('recordar').checked = false;
+  $('msgMqtt').textContent = 'Datos borrados de este dispositivo.';
+});
+
+// =====================================================================
+//  INICIO
+// =====================================================================
+setInterval(actualizarPantalla, 1000);   // refresca la cuenta regresiva y detecta silencios
+if (cargarDatosGuardados()) {
+  conectar();   // si había datos recordados, conectamos automáticamente
+} else {
+  actualizarPantalla();
+}
+</script>
+</body>
+</html>
