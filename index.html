@@ -124,7 +124,6 @@
   }
   .led { width: 14px; height: 14px; border-radius: 50%; background: var(--borde); }
   .led.activo { background: var(--verde); box-shadow: 0 0 10px var(--verde); }
-  .led.calentando { background: var(--amarillo); }
   .barra-lum {
     position: relative; height: 12px; border-radius: 6px; margin-top: 8px;
     background: var(--fondo); border: 1px solid var(--borde); overflow: visible;
@@ -212,8 +211,12 @@
     <h2>Sensores</h2>
     <div class="sensores">
       <div class="fila">
-        <span>Movimiento (PIR)</span>
-        <span class="indicador"><span class="led" id="ledMov"></span><span id="txtMov">—</span></span>
+        <span>Presencia (ultrasonido)</span>
+        <span class="indicador"><span class="led" id="ledPres"></span><span id="txtPres">—</span></span>
+      </div>
+      <div>
+        <div class="fila"><span>Distancia medida</span><b id="txtDist">—</b></div>
+        <small id="txtDeteccion">Si algo está más cerca que la distancia de detección, cuenta como presencia.</small>
       </div>
       <div>
         <div class="fila"><span>Luminosidad (LDR)</span><b id="txtLum">—</b></div>
@@ -256,7 +259,7 @@
           <input type="number" id="umbral" min="0" max="100" step="1" inputmode="numeric">
         </div>
         <div>
-          <label for="tiempo">Apagado sin movimiento (5 a 3600 s)</label>
+          <label for="tiempo">Apagado sin presencia (5 a 3600 s)</label>
           <input type="number" id="tiempo" min="5" max="3600" step="1" inputmode="numeric">
         </div>
       </div>
@@ -442,8 +445,9 @@ function mostrarEstado(esp) {
     $('txtLuz').textContent = '—';
     $('txtModo').textContent = '—';
     $('txtDetalle').textContent = 'Sin datos del ESP32 todavía.';
-    $('txtMov').textContent = '—';
-    $('ledMov').className = 'led';
+    $('txtPres').textContent = '—';
+    $('ledPres').className = 'led';
+    $('txtDist').textContent = '—';
     $('txtLum').textContent = '—';
     $('barraLum').style.width = '0%';
     $('txtAmbiente').textContent = '—';
@@ -457,14 +461,11 @@ function mostrarEstado(esp) {
   $('txtModo').textContent = nombresModo[e.modo];
   $('txtDetalle').textContent = actual ? textoDetalle(e) : '';
 
-  // Movimiento
-  if (e.pir_listo === false) {
-    $('txtMov').textContent = 'Calentando sensor…';
-    $('ledMov').className = 'led calentando';
-  } else {
-    $('txtMov').textContent = e.movimiento ? 'Detectado' : 'Sin movimiento';
-    $('ledMov').className = e.movimiento ? 'led activo' : 'led';
-  }
+  // Presencia y distancia (-1 = el eco no volvió: no hay nada al alcance)
+  $('txtPres').textContent = e.presencia ? 'Hay alguien' : 'Nadie';
+  $('ledPres').className = e.presencia ? 'led activo' : 'led';
+  $('txtDist').textContent = e.distancia < 0 ? 'Nada al alcance' : e.distancia + ' cm';
+  $('txtDeteccion').textContent = 'Detecta presencia a menos de ' + e.deteccion + ' cm.';
 
   // Luminosidad y umbral
   $('txtLum').textContent = e.luminosidad + ' %';
@@ -481,13 +482,13 @@ function mostrarEstado(esp) {
 
 // Explicación corta de lo que está haciendo el sistema
 function textoDetalle(e) {
-  if (e.modo === 'APAGADO') return 'Sistema desactivado: la luz no se enciende aunque haya movimiento.';
+  if (e.modo === 'APAGADO') return 'Sistema desactivado: la luz no se enciende aunque haya alguien.';
   if (e.modo === 'MANUAL') return 'Control manual desde el celular. Los sensores no cambian la luz.';
   // Modo automático
-  if (!e.luz) return 'Se enciende sola si detecta movimiento con poca luz.';
-  if (e.movimiento) return 'Hay movimiento: la cuenta regresiva se reinicia.';
+  if (!e.luz) return 'Se enciende sola si detecta a alguien con poca luz.';
+  if (e.presencia) return 'Hay alguien: la luz se mantiene encendida.';
   const restante = Math.max(0, e.restante - Math.floor((Date.now() - horaUltimoDato) / 1000));
-  return 'Se apaga en ' + formatearSegundos(restante) + ' si no hay movimiento.';
+  return 'Se apaga en ' + formatearSegundos(restante) + ' si no hay nadie.';
 }
 
 function formatearSegundos(s) {
@@ -507,7 +508,9 @@ function esEnteroEntre(valor, minimo, maximo) {
 function esEstadoValido(d) {
   return d !== null && typeof d === 'object'
     && typeof d.luz === 'boolean'
-    && typeof d.movimiento === 'boolean'
+    && typeof d.presencia === 'boolean'
+    && esEnteroEntre(d.distancia, -1, 500)
+    && esEnteroEntre(d.deteccion, 1, 500)
     && typeof d.oscuro === 'boolean'
     && ['AUTOMATICO', 'MANUAL', 'APAGADO'].includes(d.modo)
     && esEnteroEntre(d.luminosidad, 0, 100)
